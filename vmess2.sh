@@ -10,7 +10,7 @@ CONFIG_FILE="${INSTALL_DIR}/config.json"
 SERVICE_FILE="/etc/systemd/system/xray.service"
 
 # Cài đặt các gói cần thiết
-apt install -y unzip curl jq qrencode
+apt install -y unzip curl jq qrencode uuid-runtime
 
 # Kiểm tra xem Xray đã được cài đặt chưa
 if [[ -f "${INSTALL_DIR}/xray" ]]; then
@@ -27,16 +27,18 @@ fi
 # Nhận địa chỉ IP máy chủ
 SERVER_IP=$(curl -s ifconfig.me)
 
-# Nhập User ID, Port, và tên người dùng
-read -p "Nhập User ID VMess (UUID, nhấn Enter để tạo ngẫu nhiên): " UUID
+# Nhập UUID, Port, và tên người dùng
+read -p "Nhập UUID VMess (nhấn Enter để tạo ngẫu nhiên): " UUID
 UUID=${UUID:-$(uuidgen)}
-read -p "Nhập Port cho VMess (mặc định 443): " PORT
-PORT=${PORT:-443}
+PORT=$((RANDOM % 50000 + 10000)) # Random port từ 10000 đến 60000
 read -p "Nhập tên người dùng: " USERNAME
 
-# Tạo file cấu hình cho Xray (VMess) với IP máy chủ làm DNS
+# Tạo file cấu hình cho Xray (VMess)
 cat > ${CONFIG_FILE} <<EOF
 {
+  "log": {
+    "loglevel": "warning"
+  },
   "inbounds": [
     {
       "port": ${PORT},
@@ -45,7 +47,7 @@ cat > ${CONFIG_FILE} <<EOF
         "clients": [
           {
             "id": "${UUID}",
-            "alterId": 64
+            "alterId": 0
           }
         ]
       },
@@ -58,38 +60,28 @@ cat > ${CONFIG_FILE} <<EOF
   "outbounds": [
     {
       "protocol": "freedom",
-      "settings": {},
-      "domainStrategy": "UseIP"
+      "settings": {}
     }
-  ],
-  "dns": {
-    "servers": [
-      "${SERVER_IP}",
-      "8.8.8.8",
-      "1.1.1.1"
-    ]
-  }
+  ]
 }
 EOF
 
-# Mở cổng trên tường lửa (nếu chưa mở)
+# Mở cổng trên tường lửa
 ufw allow ${PORT}/tcp
 
 # Kiểm tra và tạo service systemd nếu chưa có
 if [[ ! -f "${SERVICE_FILE}" ]]; then
-    echo "Tạo service Xray (VMess)..."
+    echo "Tạo service Xray..."
     cat > ${SERVICE_FILE} <<EOF
 [Unit]
-Description=Xray Service (VMess)
+Description=Xray VMess Service
 After=network.target
-Wants=network-online.target
 
 [Service]
 ExecStart=${INSTALL_DIR}/xray run -config ${CONFIG_FILE}
 Restart=always
 User=root
 LimitNOFILE=512000
-RestartSec=5
 
 [Install]
 WantedBy=multi-user.target
@@ -101,9 +93,31 @@ systemctl daemon-reload
 systemctl enable xray
 systemctl restart xray
 
-# Tạo URL VMess với IP làm DNS
-VMESS_JSON=$(echo -n "{\"v\":\"2\",\"ps\":\"${USERNAME}\",\"add\":\"${SERVER_IP}\",\"port\":\"${PORT}\",\"id\":\"${UUID}\",\"aid\":\"64\",\"net\":\"tcp\",\"type\":\"none\",\"host\":\"\",\"path\":\"\",\"tls\":\"none\",\"dns\":\"${SERVER_IP}\"}" | base64 -w 0)
-VMESS_URL="vmess://${VMESS_JSON}"
+# Tạo JSON VMess (không mã hóa UUID)
+VMESS_JSON=$(cat <<EOF
+{
+  "v": "2",
+  "ps": "${USERNAME}",
+  "add": "${SERVER_IP}",
+  "port": "${PORT}",
+  "id": "${UUID}",
+  "aid": "0",
+  "net": "tcp",
+  "type": "none",
+  "host": "",
+  "path": "",
+  "tls": "none",
+  "scy": "auto",
+  "sni": ""
+}
+EOF
+)
+
+# Mã hóa JSON thành Base64
+VMESS_ENCODED=$(echo -n "${VMESS_JSON}" | base64 -w 0)
+
+# Tạo URL VMess
+VMESS_URL="vmess://${VMESS_ENCODED}"
 
 # Tạo mã QR
 QR_FILE="/tmp/vmess_qr.png"
@@ -120,5 +134,5 @@ echo "Mã QR được lưu tại: ${QR_FILE}"
 echo "Quét mã QR dưới đây để sử dụng:"
 qrencode -t ANSIUTF8 "${VMESS_URL}"
 echo "----------------------------------------"
-echo "DNS sử dụng: ${SERVER_IP}"
+echo "Tên người dùng: ${USERNAME}"
 echo "========================================"
