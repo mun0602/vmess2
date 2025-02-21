@@ -34,7 +34,7 @@ read -p "Nhập Port cho VMess (mặc định 443): " PORT
 PORT=${PORT:-443}
 read -p "Nhập tên người dùng: " USERNAME
 
-# Tạo file cấu hình cho Xray (VMess)
+# Tạo file cấu hình cho Xray (VMess) với IP máy chủ làm DNS
 cat > ${CONFIG_FILE} <<EOF
 {
   "inbounds": [
@@ -58,9 +58,17 @@ cat > ${CONFIG_FILE} <<EOF
   "outbounds": [
     {
       "protocol": "freedom",
-      "settings": {}
+      "settings": {},
+      "domainStrategy": "UseIP"
     }
-  ]
+  ],
+  "dns": {
+    "servers": [
+      "${SERVER_IP}",
+      "8.8.8.8",
+      "1.1.1.1"
+    ]
+  }
 }
 EOF
 
@@ -93,8 +101,8 @@ systemctl daemon-reload
 systemctl enable xray
 systemctl restart xray
 
-# Tạo URL VMess
-VMESS_JSON=$(echo -n "{\"v\":\"2\",\"ps\":\"${USERNAME}\",\"add\":\"${SERVER_IP}\",\"port\":\"${PORT}\",\"id\":\"${UUID}\",\"aid\":\"64\",\"net\":\"tcp\",\"type\":\"none\",\"host\":\"\",\"path\":\"\",\"tls\":\"none\"}" | base64 -w 0)
+# Tạo URL VMess với IP làm DNS
+VMESS_JSON=$(echo -n "{\"v\":\"2\",\"ps\":\"${USERNAME}\",\"add\":\"${SERVER_IP}\",\"port\":\"${PORT}\",\"id\":\"${UUID}\",\"aid\":\"64\",\"net\":\"tcp\",\"type\":\"none\",\"host\":\"\",\"path\":\"\",\"tls\":\"none\",\"dns\":\"${SERVER_IP}\"}" | base64 -w 0)
 VMESS_URL="vmess://${VMESS_JSON}"
 
 # Tạo mã QR
@@ -112,5 +120,5 @@ echo "Mã QR được lưu tại: ${QR_FILE}"
 echo "Quét mã QR dưới đây để sử dụng:"
 qrencode -t ANSIUTF8 "${VMESS_URL}"
 echo "----------------------------------------"
-echo "Tên người dùng: ${USERNAME}"
+echo "DNS sử dụng: ${SERVER_IP}"
 echo "========================================"
