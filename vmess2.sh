@@ -10,7 +10,7 @@ CONFIG_FILE="${INSTALL_DIR}/config.json"
 SERVICE_FILE="/etc/systemd/system/xray.service"
 
 # Cài đặt các gói cần thiết
-apt install -y unzip curl jq qrencode uuid-runtime
+apt install -y unzip curl jq qrencode uuid-runtime imagemagick
 
 # Kiểm tra xem Xray đã được cài đặt chưa
 if [[ -f "${INSTALL_DIR}/xray" ]]; then
@@ -93,35 +93,48 @@ systemctl daemon-reload
 systemctl enable xray
 systemctl restart xray
 
-# Tạo JSON VMess (không mã hóa UUID)
-VMESS_JSON=$(cat <<EOF
-{
-  "v": "2",
-  "ps": "${USERNAME}",
-  "add": "${SERVER_IP}",
-  "port": "${PORT}",
-  "id": "${UUID}",
-  "aid": "0",
-  "net": "tcp",
-  "type": "none",
-  "host": "",
-  "path": "",
-  "tls": "none",
-  "scy": "auto",
-  "sni": ""
-}
-EOF
-)
+# Tạo JSON VMess chuẩn hoá
+VMESS_JSON=$(jq -n --arg v "2" \
+                   --arg ps "${USERNAME}" \
+                   --arg add "${SERVER_IP}" \
+                   --arg port "${PORT}" \
+                   --arg id "${UUID}" \
+                   --arg aid "0" \
+                   --arg net "tcp" \
+                   --arg type "none" \
+                   --arg host "" \
+                   --arg path "" \
+                   --arg tls "none" \
+                   --arg scy "auto" \
+                   --arg sni "" \
+                   '{
+  "v": $v,
+  "ps": $ps,
+  "add": $add,
+  "port": $port,
+  "id": $id,
+  "aid": $aid,
+  "net": $net,
+  "type": $type,
+  "host": $host,
+  "path": $path,
+  "tls": $tls,
+  "scy": $scy,
+  "sni": $sni
+}')
 
-# Mã hóa JSON thành Base64
+# Encode JSON thành Base64 (đúng chuẩn V2Ray)
 VMESS_ENCODED=$(echo -n "${VMESS_JSON}" | base64 -w 0)
 
 # Tạo URL VMess
 VMESS_URL="vmess://${VMESS_ENCODED}"
 
-# Tạo mã QR
+# Tạo mã QR nhỏ hơn (-s 5), với tên in đậm dưới QR
 QR_FILE="/tmp/vmess_qr.png"
-qrencode -o ${QR_FILE} -s 10 "${VMESS_URL}"
+qrencode -o ${QR_FILE} -s 5 -m 2 "${VMESS_URL}"
+
+# Thêm tên VMess dưới QR
+convert ${QR_FILE} -gravity south -fill black -pointsize 20 -annotate +0+10 "**${USERNAME}**" ${QR_FILE}
 
 # Hiển thị thông tin VMess
 echo "========================================"
